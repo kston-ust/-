@@ -7,6 +7,7 @@ import {
   formatCurrency,
   deriveCartTotals,
   pickFeaturedProducts,
+  shouldRefreshData,
 } from "../src/summary.js";
 
 test("deriveCartTotals totals selected quantities and digital premium", () => {
@@ -37,7 +38,7 @@ test("pickFeaturedProducts sorts by sales volume and keeps requested count", () 
 });
 
 test("formatCurrency renders RMB without decimal noise", () => {
-  assert.equal(formatCurrency(131680), "¥131,680");
+  assert.equal(formatCurrency(131680), "\u00a5131,680");
 });
 
 test("buildOrderItems converts positive cart quantities into backend payload items", () => {
@@ -48,7 +49,13 @@ test("buildOrderItems converts positive cart quantities into backend payload ite
 });
 
 test("canSubmitCart only allows a named customer and selected products", () => {
-  assert.equal(canSubmitCart("验收客户", { "P-SOUP": 1 }), true);
+  assert.equal(canSubmitCart("Test Customer", { "P-SOUP": 1 }), true);
   assert.equal(canSubmitCart("", { "P-SOUP": 1 }), false);
-  assert.equal(canSubmitCart("验收客户", {}), false);
+  assert.equal(canSubmitCart("Test Customer", {}), false);
+});
+
+test("shouldRefreshData refreshes only when the server version changes", () => {
+  assert.equal(shouldRefreshData({ version: "3:ORD-1:1000" }, { version: "4:ORD-2:1460" }), true);
+  assert.equal(shouldRefreshData({ version: "3:ORD-1:1000" }, { version: "3:ORD-1:1000" }), false);
+  assert.equal(shouldRefreshData(null, { version: "3:ORD-1:1000" }), false);
 });

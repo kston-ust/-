@@ -11,6 +11,7 @@ from .database import (
     create_order,
     fetch_farmer_benefits,
     fetch_finance_records,
+    fetch_order_change_state,
     fetch_orders,
     fetch_products,
     fetch_shipments,
@@ -62,6 +63,12 @@ def products() -> list[dict]:
 def orders() -> list[dict]:
     init_db()
     return fetch_orders()
+
+
+@app.get("/api/change-state")
+def change_state() -> dict:
+    init_db()
+    return fetch_order_change_state()
 
 
 @app.post("/api/orders", status_code=201)

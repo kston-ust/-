@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { fallbackProducts, fallbackSummary, fetchProducts, fetchSummary, submitOrder } from "./api.js";
+import {
+  fallbackChangeState,
+  fallbackProducts,
+  fallbackSummary,
+  fetchChangeState,
+  fetchProducts,
+  fetchSummary,
+  submitOrder,
+} from "./api.js";
 import {
   buildOrderItems,
   canSubmitCart,
@@ -8,6 +16,7 @@ import {
   formatCurrency,
   percent,
   pickFeaturedProducts,
+  shouldRefreshData,
 } from "./summary.js";
 import "./styles.css";
 
@@ -62,17 +71,67 @@ function App() {
   const [status, setStatus] = useState({ type: "idle", text: "请选择商品，确认后会生成一笔模拟交易订单。" });
   const [lastOrder, setLastOrder] = useState(null);
   const [submittedOrders, setSubmittedOrders] = useState([]);
+  const [changeState, setChangeState] = useState(fallbackChangeState);
+  const [lastCheckedAt, setLastCheckedAt] = useState("");
+  const changeStateRef = useRef(fallbackChangeState);
+
+  function rememberChangeState(nextState) {
+    changeStateRef.current = nextState;
+    setChangeState(nextState);
+  }
 
   async function refreshCustomerData() {
-    const [nextProducts, nextSummary] = await Promise.all([fetchProducts(), fetchSummary()]);
+    const [nextProducts, nextSummary, nextChangeState] = await Promise.all([
+      fetchProducts(),
+      fetchSummary(),
+      fetchChangeState(),
+    ]);
     setProducts(nextProducts);
     setSummary(nextSummary);
+    rememberChangeState(nextChangeState);
   }
 
   useEffect(() => {
     refreshCustomerData().catch(() => {
       setStatus({ type: "warning", text: "暂时无法连接交易服务，页面正在使用演示商品数据。" });
     });
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function refreshIfChanged() {
+      try {
+        const nextChangeState = await fetchChangeState();
+        if (!isActive) {
+          return;
+        }
+
+        setLastCheckedAt(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
+        if (shouldRefreshData(changeStateRef.current, nextChangeState)) {
+          await refreshCustomerData();
+          if (!isActive) {
+            return;
+          }
+          setStatus((current) =>
+            current.type === "loading" ? current : { type: "success", text: "订单状态已自动更新，页面信息已刷新。" },
+          );
+          return;
+        }
+
+        rememberChangeState(nextChangeState);
+      } catch {
+        if (isActive) {
+          setLastCheckedAt("");
+        }
+      }
+    }
+
+    const timer = window.setInterval(refreshIfChanged, 5000);
+    return () => {
+      isActive = false;
+      window.clearInterval(timer);
+    };
   }, []);
 
   const activeProfile = purchaseProfiles.find((profile) => profile.id === profileId) || purchaseProfiles[0];
@@ -288,6 +347,11 @@ function App() {
             <b>{formatCurrency(cartTotals.estimatedDigitalPremium)}</b>
           </div>
           <div className={`submit-status ${status.type}`}>{status.text}</div>
+          <div className="auto-refresh-note">
+            <span>订单状态自动更新</span>
+            <b>{lastCheckedAt ? `上次检查 ${lastCheckedAt}` : "准备同步"}</b>
+            <small>{changeState.latest_order_id ? `最近确认 ${changeState.latest_order_id}` : "暂无新订单"}</small>
+          </div>
           <div className="cart-actions">
             <button className="checkout-button" disabled={!canSubmit} onClick={handleSubmitOrder} type="button">
               {status.type === "loading" ? "提交中..." : "提交订单"}

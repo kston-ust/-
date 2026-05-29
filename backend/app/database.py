@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from pathlib import Path
 from typing import Any
+
+from .summary import build_change_version
 
 
 DB_PATH = Path(__file__).resolve().parents[1] / "online_trade.db"
@@ -110,59 +113,60 @@ def connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
 
 def init_db(db_path: Path = DB_PATH) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with connect(db_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS products (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                category TEXT NOT NULL,
-                origin TEXT NOT NULL,
-                scene TEXT NOT NULL,
-                price REAL NOT NULL,
-                unit TEXT NOT NULL,
-                stock INTEGER NOT NULL,
-                monthly_sales INTEGER NOT NULL,
-                digital_premium_rate REAL NOT NULL,
-                trace_label TEXT NOT NULL,
-                image TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS orders (
-                id TEXT PRIMARY KEY,
-                customer_name TEXT NOT NULL,
-                channel TEXT NOT NULL,
-                customer_type TEXT NOT NULL,
-                status TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                total_amount REAL NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS order_items (
-                order_id TEXT NOT NULL,
-                product_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                quantity INTEGER NOT NULL,
-                unit_price REAL NOT NULL,
-                FOREIGN KEY(order_id) REFERENCES orders(id)
-            );
-            CREATE TABLE IF NOT EXISTS shipments (
-                order_id TEXT PRIMARY KEY,
-                hours_to_delivery REAL NOT NULL,
-                loss_rate REAL NOT NULL,
-                temperature_ok INTEGER NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS finance_records (
-                farmer_id TEXT NOT NULL,
-                loan_amount REAL NOT NULL,
-                service_fee_rate REAL NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS farmer_benefits (
-                farmer_id TEXT NOT NULL,
-                premium_income REAL NOT NULL,
-                dividend REAL NOT NULL
-            );
-            """
-        )
-        seed_db(connection)
+    with closing(connect(db_path)) as connection:
+        with connection:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS products (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    origin TEXT NOT NULL,
+                    scene TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    unit TEXT NOT NULL,
+                    stock INTEGER NOT NULL,
+                    monthly_sales INTEGER NOT NULL,
+                    digital_premium_rate REAL NOT NULL,
+                    trace_label TEXT NOT NULL,
+                    image TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS orders (
+                    id TEXT PRIMARY KEY,
+                    customer_name TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    customer_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    total_amount REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS order_items (
+                    order_id TEXT NOT NULL,
+                    product_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    quantity INTEGER NOT NULL,
+                    unit_price REAL NOT NULL,
+                    FOREIGN KEY(order_id) REFERENCES orders(id)
+                );
+                CREATE TABLE IF NOT EXISTS shipments (
+                    order_id TEXT PRIMARY KEY,
+                    hours_to_delivery REAL NOT NULL,
+                    loss_rate REAL NOT NULL,
+                    temperature_ok INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS finance_records (
+                    farmer_id TEXT NOT NULL,
+                    loan_amount REAL NOT NULL,
+                    service_fee_rate REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS farmer_benefits (
+                    farmer_id TEXT NOT NULL,
+                    premium_income REAL NOT NULL,
+                    dividend REAL NOT NULL
+                );
+                """
+            )
+            seed_db(connection)
 
 
 def seed_db(connection: sqlite3.Connection) -> None:
@@ -191,13 +195,13 @@ def seed_db(connection: sqlite3.Connection) -> None:
 
 
 def fetch_products() -> list[dict[str, Any]]:
-    with connect() as connection:
+    with closing(connect()) as connection:
         rows = connection.execute("SELECT * FROM products ORDER BY monthly_sales DESC").fetchall()
     return [dict(row) for row in rows]
 
 
 def fetch_orders() -> list[dict[str, Any]]:
-    with connect() as connection:
+    with closing(connect()) as connection:
         orders = [dict(row) for row in connection.execute("SELECT * FROM orders ORDER BY created_at DESC").fetchall()]
         for order in orders:
             items = connection.execute(
@@ -209,21 +213,53 @@ def fetch_orders() -> list[dict[str, Any]]:
 
 
 def fetch_shipments() -> list[dict[str, Any]]:
-    with connect() as connection:
+    with closing(connect()) as connection:
         rows = connection.execute("SELECT * FROM shipments").fetchall()
     return [{**dict(row), "temperature_ok": bool(row["temperature_ok"])} for row in rows]
 
 
 def fetch_finance_records() -> list[dict[str, Any]]:
-    with connect() as connection:
+    with closing(connect()) as connection:
         rows = connection.execute("SELECT * FROM finance_records").fetchall()
     return [dict(row) for row in rows]
 
 
 def fetch_farmer_benefits() -> list[dict[str, Any]]:
-    with connect() as connection:
+    with closing(connect()) as connection:
         rows = connection.execute("SELECT * FROM farmer_benefits").fetchall()
     return [dict(row) for row in rows]
+
+
+def fetch_order_change_state(db_path: Path = DB_PATH) -> dict[str, Any]:
+    with closing(connect(db_path)) as connection:
+        totals = connection.execute(
+            """
+            SELECT COUNT(*) AS order_count, COALESCE(SUM(total_amount), 0) AS total_gmv
+            FROM orders
+            WHERE status = 'paid'
+            """
+        ).fetchone()
+        latest = connection.execute(
+            """
+            SELECT id, created_at
+            FROM orders
+            WHERE status = 'paid'
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+
+    order_count = int(totals["order_count"])
+    total_gmv = int(round(float(totals["total_gmv"])))
+    latest_order_id = latest["id"] if latest else None
+    latest_order_at = latest["created_at"] if latest else None
+    return {
+        "version": build_change_version(order_count, latest_order_id, total_gmv),
+        "order_count": order_count,
+        "latest_order_id": latest_order_id,
+        "latest_order_at": latest_order_at,
+        "total_gmv": total_gmv,
+    }
 
 
 def create_order(payload: dict[str, Any]) -> dict[str, Any]:
@@ -256,24 +292,25 @@ def create_order(payload: dict[str, Any]) -> dict[str, Any]:
         "items": items,
     }
 
-    with connect() as connection:
-        connection.execute(
-            "INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                order["id"],
-                order["customer_name"],
-                order["channel"],
-                order["customer_type"],
-                order["status"],
-                order["created_at"],
-                order["total_amount"],
-            ),
-        )
-        connection.executemany(
-            "INSERT INTO order_items VALUES (?, ?, ?, ?, ?)",
-            [
-                (order_id, item["product_id"], item["name"], item["quantity"], item["unit_price"])
-                for item in items
-            ],
-        )
+    with closing(connect()) as connection:
+        with connection:
+            connection.execute(
+                "INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    order["id"],
+                    order["customer_name"],
+                    order["channel"],
+                    order["customer_type"],
+                    order["status"],
+                    order["created_at"],
+                    order["total_amount"],
+                ),
+            )
+            connection.executemany(
+                "INSERT INTO order_items VALUES (?, ?, ?, ?, ?)",
+                [
+                    (order_id, item["product_id"], item["name"], item["quantity"], item["unit_price"])
+                    for item in items
+                ],
+            )
     return order

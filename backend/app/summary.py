@@ -14,6 +14,10 @@ def _average(values: list[float]) -> float:
     return round(sum(values) / len(values), 4)
 
 
+def build_change_version(order_count: int, latest_order_id: str | None, total_gmv: float) -> str:
+    return f"{order_count}:{latest_order_id or 'none'}:{_round_money(total_gmv)}"
+
+
 def build_business_summary(
     orders: list[dict[str, Any]],
     shipments: list[dict[str, Any]],

@@ -39,6 +39,10 @@ export function pickFeaturedProducts(products, count = 3) {
   return [...products].sort((left, right) => right.monthlySales - left.monthlySales).slice(0, count);
 }
 
+export function shouldRefreshData(previousState, nextState) {
+  return Boolean(previousState?.version && nextState?.version && previousState.version !== nextState.version);
+}
+
 export function percent(value) {
   return `${(value * 100).toFixed(value < 0.1 ? 1 : 0)}%`;
 }

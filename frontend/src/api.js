@@ -85,6 +85,14 @@ export const fallbackSummary = {
   },
 };
 
+export const fallbackChangeState = {
+  version: "3:ORD-202605-004:194180",
+  order_count: 3,
+  latest_order_id: "ORD-202605-004",
+  latest_order_at: "2026-05-27T16:45:00",
+  total_gmv: 194180,
+};
+
 export const fallbackOrders = [
   {
     id: "ORD-202605-004",
@@ -141,6 +149,10 @@ export async function fetchProducts() {
 
 export async function fetchSummary() {
   return requestJson("/api/summary", fallbackSummary);
+}
+
+export async function fetchChangeState() {
+  return requestJson("/api/change-state", fallbackChangeState);
 }
 
 export async function fetchOrders() {

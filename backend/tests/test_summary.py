@@ -1,6 +1,6 @@
 import unittest
 
-from app.summary import build_business_summary
+from app.summary import build_business_summary, build_change_version
 
 
 class BusinessSummaryTest(unittest.TestCase):
@@ -72,6 +72,11 @@ class BusinessSummaryTest(unittest.TestCase):
         self.assertEqual(summary["fulfillment"]["average_delivery_hours"], 0)
         self.assertEqual(summary["finance"]["platform_service_fee"], 0)
         self.assertEqual(summary["farmer_value"]["total_incremental_income"], 0)
+
+    def test_change_version_tracks_paid_order_state(self):
+        self.assertEqual(build_change_version(3, "ORD-202605-004", 194180), "3:ORD-202605-004:194180")
+        self.assertEqual(build_change_version(4, "ORD-DEMO-001", 194640), "4:ORD-DEMO-001:194640")
+        self.assertEqual(build_change_version(0, None, 0), "0:none:0")
 
 
 if __name__ == "__main__":

@@ -515,6 +515,28 @@ button {
   background: #fff6df;
 }
 
+.auto-refresh-note {
+  display: grid;
+  gap: 4px;
+  margin: -4px 0 16px;
+  border: 1px solid #dfe6d8;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #607267;
+  background: #fff;
+}
+
+.auto-refresh-note span,
+.auto-refresh-note small {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.auto-refresh-note b {
+  color: #193126;
+  font-size: 14px;
+}
+
 .dashboard-band {
   padding: 20px clamp(18px, 4vw, 0px) 70px;
 }
