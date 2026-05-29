@@ -22,6 +22,19 @@ export function deriveCartTotals(products, cart) {
   );
 }
 
+export function buildOrderItems(cart) {
+  return Object.entries(cart)
+    .filter(([, quantity]) => Number(quantity) > 0)
+    .map(([productId, quantity]) => ({
+      product_id: productId,
+      quantity: Number(quantity),
+    }));
+}
+
+export function canSubmitCart(customerName, cart) {
+  return customerName.trim().length >= 2 && buildOrderItems(cart).length > 0;
+}
+
 export function pickFeaturedProducts(products, count = 3) {
   return [...products].sort((left, right) => right.monthlySales - left.monthlySales).slice(0, count);
 }

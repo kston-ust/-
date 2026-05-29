@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { formatCurrency, deriveCartTotals, pickFeaturedProducts } from "../src/summary.js";
+import {
+  buildOrderItems,
+  canSubmitCart,
+  formatCurrency,
+  deriveCartTotals,
+  pickFeaturedProducts,
+} from "../src/summary.js";
 
 test("deriveCartTotals totals selected quantities and digital premium", () => {
   const products = [
@@ -32,4 +38,17 @@ test("pickFeaturedProducts sorts by sales volume and keeps requested count", () 
 
 test("formatCurrency renders RMB without decimal noise", () => {
   assert.equal(formatCurrency(131680), "¥131,680");
+});
+
+test("buildOrderItems converts positive cart quantities into backend payload items", () => {
+  assert.deepEqual(buildOrderItems({ "P-SOUP": 2, "P-RACK": 0, "P-LEG": 3 }), [
+    { product_id: "P-SOUP", quantity: 2 },
+    { product_id: "P-LEG", quantity: 3 },
+  ]);
+});
+
+test("canSubmitCart only allows a named customer and selected products", () => {
+  assert.equal(canSubmitCart("验收客户", { "P-SOUP": 1 }), true);
+  assert.equal(canSubmitCart("", { "P-SOUP": 1 }), false);
+  assert.equal(canSubmitCart("验收客户", {}), false);
 });

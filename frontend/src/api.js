@@ -85,6 +85,32 @@ export const fallbackSummary = {
   },
 };
 
+export const fallbackOrders = [
+  {
+    id: "ORD-202605-004",
+    customer_name: "华东精品商超",
+    channel: "B端集采",
+    customer_type: "生鲜商超",
+    status: "paid",
+    created_at: "2026-05-27T16:45:00",
+    total_amount: 62500,
+    items: [
+      { product_id: "P-SOUP", name: "即食羊汤预制包", quantity: 500, unit_price: 69 },
+      { product_id: "P-LEG", name: "古浪精修羊腿", quantity: 36, unit_price: 780 },
+    ],
+  },
+  {
+    id: "ORD-202605-002",
+    customer_name: "上海陆家嘴家庭会员",
+    channel: "C端小程序",
+    customer_type: "家庭会员",
+    status: "paid",
+    created_at: "2026-05-25T14:10:00",
+    total_amount: 3680,
+    items: [{ product_id: "P-RACK", name: "北纬37度法式羊排", quantity: 8, unit_price: 460 }],
+  },
+];
+
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
 function normalizeProduct(product) {
@@ -115,4 +141,21 @@ export async function fetchProducts() {
 
 export async function fetchSummary() {
   return requestJson("/api/summary", fallbackSummary);
+}
+
+export async function fetchOrders() {
+  return requestJson("/api/orders", fallbackOrders);
+}
+
+export async function submitOrder(payload) {
+  const response = await fetch(`${API_BASE}/api/orders`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Order failed: ${response.status}`);
+  }
+  return response.json();
 }

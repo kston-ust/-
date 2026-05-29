@@ -72,7 +72,7 @@ def submit_order(payload: OrderIn) -> dict:
     if missing:
         raise HTTPException(status_code=400, detail=f"Unknown product id: {', '.join(missing)}")
 
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
     return create_order(
         {
             "id": f"ORD-DEMO-{timestamp}",
