@@ -1,14 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import {
-  fallbackOrders,
-  fallbackProducts,
-  fallbackSummary,
-  fetchOrders,
-  fetchProducts,
-  fetchSummary,
-  submitOrder,
-} from "./api.js";
+import { fallbackProducts, fallbackSummary, fetchProducts, fetchSummary, submitOrder } from "./api.js";
 import {
   buildOrderItems,
   canSubmitCart,
@@ -20,8 +12,36 @@ import {
 import "./styles.css";
 
 const categoryTabs = ["全部", "基石产品", "增长产品", "溢价产品"];
-const channelOptions = ["C端小程序", "B端集采", "社区团购", "直播电商"];
-const customerTypeOptions = ["家庭会员", "火锅连锁", "生鲜商超", "企业食堂"];
+const purchaseProfiles = [
+  {
+    id: "home",
+    label: "家庭自用",
+    description: "适合家庭火锅、煎烤和日常囤货",
+    channel: "C端小程序",
+    customerType: "家庭会员",
+  },
+  {
+    id: "group",
+    label: "社区团购",
+    description: "适合邻里拼团、社区团长集中下单",
+    channel: "社区团购",
+    customerType: "家庭会员",
+  },
+  {
+    id: "restaurant",
+    label: "餐饮集采",
+    description: "适合火锅店、酒店和企业食堂批量采购",
+    channel: "B端集采",
+    customerType: "火锅连锁",
+  },
+  {
+    id: "live",
+    label: "直播福利",
+    description: "适合直播间活动、限时组合购买",
+    channel: "直播电商",
+    customerType: "家庭会员",
+  },
+];
 
 function ProductVisual({ type }) {
   return (
@@ -35,31 +55,27 @@ function ProductVisual({ type }) {
 function App() {
   const [products, setProducts] = useState(fallbackProducts);
   const [summary, setSummary] = useState(fallbackSummary);
-  const [orders, setOrders] = useState(fallbackOrders);
   const [activeCategory, setActiveCategory] = useState("全部");
   const [cart, setCart] = useState({ "P-SOUP": 6, "P-RACK": 2 });
   const [customerName, setCustomerName] = useState("西域羊都体验客户");
-  const [channel, setChannel] = useState("C端小程序");
-  const [customerType, setCustomerType] = useState("家庭会员");
-  const [status, setStatus] = useState({ type: "idle", text: "已连接交易中台，可提交样例订单。" });
+  const [profileId, setProfileId] = useState("home");
+  const [status, setStatus] = useState({ type: "idle", text: "请选择商品，确认后会生成一笔模拟交易订单。" });
+  const [lastOrder, setLastOrder] = useState(null);
+  const [submittedOrders, setSubmittedOrders] = useState([]);
 
-  async function refreshBusinessData() {
-    const [nextProducts, nextSummary, nextOrders] = await Promise.all([
-      fetchProducts(),
-      fetchSummary(),
-      fetchOrders(),
-    ]);
+  async function refreshCustomerData() {
+    const [nextProducts, nextSummary] = await Promise.all([fetchProducts(), fetchSummary()]);
     setProducts(nextProducts);
     setSummary(nextSummary);
-    setOrders(nextOrders);
   }
 
   useEffect(() => {
-    refreshBusinessData().catch(() => {
-      setStatus({ type: "warning", text: "后端未连接，当前显示内置演示数据。" });
+    refreshCustomerData().catch(() => {
+      setStatus({ type: "warning", text: "暂时无法连接交易服务，页面正在使用演示商品数据。" });
     });
   }, []);
 
+  const activeProfile = purchaseProfiles.find((profile) => profile.id === profileId) || purchaseProfiles[0];
   const visibleProducts = useMemo(
     () =>
       activeCategory === "全部"
@@ -69,7 +85,6 @@ function App() {
   );
   const cartTotals = useMemo(() => deriveCartTotals(products, cart), [products, cart]);
   const featuredProducts = useMemo(() => pickFeaturedProducts(products, 3), [products]);
-  const recentOrders = useMemo(() => orders.slice(0, 5), [orders]);
   const canSubmit = canSubmitCart(customerName, cart) && status.type !== "loading";
 
   function addToCart(productId) {
@@ -93,28 +108,30 @@ function App() {
 
   async function handleSubmitOrder() {
     if (!canSubmitCart(customerName, cart)) {
-      setStatus({ type: "error", text: "请填写客户名称，并至少选择一个商品。" });
+      setStatus({ type: "error", text: "请填写采购方名称，并至少选择一个商品。" });
       return;
     }
 
-    setStatus({ type: "loading", text: "正在提交订单，牵引后端交易数据..." });
+    setStatus({ type: "loading", text: "正在提交订单，请稍候..." });
     try {
       const createdOrder = await submitOrder({
         customer_name: customerName.trim(),
-        channel,
-        customer_type: customerType,
+        channel: activeProfile.channel,
+        customer_type: activeProfile.customerType,
         items: buildOrderItems(cart),
       });
+      setLastOrder(createdOrder);
+      setSubmittedOrders((current) => [createdOrder, ...current].slice(0, 3));
       setCart({});
-      await refreshBusinessData();
+      await refreshCustomerData();
       setStatus({
         type: "success",
-        text: `订单 ${createdOrder.id} 已成交，GMV、订单数和渠道收入已刷新。`,
+        text: `订单 ${createdOrder.id} 已提交成功，商品明细和金额已由交易服务确认。`,
       });
     } catch (error) {
       setStatus({
         type: "error",
-        text: `提交失败：${error.message || "请确认后端 http://127.0.0.1:8000 已启动。"}`,
+        text: `订单提交失败：${error.message || "请确认后端服务已启动。"}`,
       });
     }
   }
@@ -125,39 +142,39 @@ function App() {
         <nav className="topbar">
           <div className="brand-mark">西域羊都</div>
           <div className="nav-pills">
-            <span>商城交易</span>
-            <span>在线下单</span>
-            <span>数据回流</span>
-            <span>JIT冷链</span>
+            <span>产地直供</span>
+            <span>冷链到家</span>
+            <span>扫码溯源</span>
+            <span>放心下单</span>
           </div>
         </nav>
 
         <div className="hero-grid">
           <div className="hero-copy">
             <p className="eyebrow">西北羊产业数字化供应链平台</p>
-            <h1>网上交易商城</h1>
+            <h1>安心买西北好羊肉</h1>
             <p className="hero-text">
-              从选品、加购、下单到经营数据刷新，模拟“消费者订单牵引后端中台”的真实交易场景。
+              从古浪产地直采到冷链配送，页面只呈现顾客需要判断购买的信息：品质、价格、溯源、履约和订单确认。
             </p>
             <div className="hero-actions">
-              <a href="#products">进入交易</a>
-              <a href="#orders" className="secondary-action">
-                查看订单流
+              <a href="#products">选购商品</a>
+              <a href="#assurance" className="secondary-action">
+                查看保障
               </a>
             </div>
           </div>
 
           <aside className="trade-console">
             <div>
-              <span className="console-label">实时GMV</span>
-              <strong>{formatCurrency(summary.trade.gmv)}</strong>
+              <span className="console-label">可选商品</span>
+              <strong>{products.length} 款</strong>
             </div>
             <div>
-              <span className="console-label">成交订单</span>
+              <span className="console-label">已验证订单</span>
               <strong>{summary.trade.paid_order_count}</strong>
             </div>
             <div>
-              <span className="console-label">平均履约</span>
+              <span className="console-label">平均送达</span>
               <strong>{summary.fulfillment.average_delivery_hours}h</strong>
             </div>
             <div className="temperature-strip">
@@ -172,7 +189,7 @@ function App() {
         <div className="catalog-panel">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Online Trade</p>
+              <p className="eyebrow">Shop</p>
               <h2>数字溯源商品</h2>
             </div>
             <div className="tabs" aria-label="商品分类">
@@ -207,7 +224,7 @@ function App() {
                       <small>/{product.unit}</small>
                     </strong>
                     <button onClick={() => addToCart(product.id)} type="button">
-                      加入交易单
+                      加入购物车
                     </button>
                   </div>
                 </div>
@@ -217,35 +234,28 @@ function App() {
         </div>
 
         <aside className="cart-panel">
-          <p className="eyebrow">Trade Sheet</p>
-          <h2>在线交易单</h2>
+          <p className="eyebrow">Checkout</p>
+          <h2>确认订单</h2>
 
           <label className="field-label">
-            客户名称
+            采购方名称
             <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
           </label>
-          <div className="form-grid">
-            <label className="field-label">
-              渠道
-              <select value={channel} onChange={(event) => setChannel(event.target.value)}>
-                {channelOptions.map((option) => (
-                  <option key={option}>{option}</option>
-                ))}
-              </select>
-            </label>
-            <label className="field-label">
-              客户类型
-              <select value={customerType} onChange={(event) => setCustomerType(event.target.value)}>
-                {customerTypeOptions.map((option) => (
-                  <option key={option}>{option}</option>
-                ))}
-              </select>
-            </label>
-          </div>
+          <label className="field-label">
+            采购场景
+            <select value={profileId} onChange={(event) => setProfileId(event.target.value)}>
+              {purchaseProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.label}
+                </option>
+              ))}
+            </select>
+            <span className="profile-help">{activeProfile.description}</span>
+          </label>
 
           <div className="cart-lines">
             {products.filter((product) => cart[product.id]).length === 0 ? (
-              <div className="empty-cart">交易单为空，请从左侧商品加入。</div>
+              <div className="empty-cart">购物车为空，请从左侧选择商品。</div>
             ) : (
               products
                 .filter((product) => cart[product.id])
@@ -270,17 +280,17 @@ function App() {
             <strong>{cartTotals.itemCount}</strong>
           </div>
           <div className="cart-total">
-            <span>预计成交额</span>
+            <span>预计金额</span>
             <strong>{formatCurrency(cartTotals.subtotal)}</strong>
           </div>
           <div className="premium-box">
-            <span>数字溯源带来的估算溢价</span>
+            <span>品质溯源带来的参考价值</span>
             <b>{formatCurrency(cartTotals.estimatedDigitalPremium)}</b>
           </div>
           <div className={`submit-status ${status.type}`}>{status.text}</div>
           <div className="cart-actions">
             <button className="checkout-button" disabled={!canSubmit} onClick={handleSubmitOrder} type="button">
-              {status.type === "loading" ? "提交中..." : "提交订单并刷新数据"}
+              {status.type === "loading" ? "提交中..." : "提交订单"}
             </button>
             <button className="clear-button" onClick={clearCart} type="button">
               清空
@@ -289,29 +299,25 @@ function App() {
         </aside>
       </section>
 
-      <section className="dashboard-band" id="dashboard">
+      <section className="dashboard-band" id="assurance">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Business Summary</p>
-            <h2>综合经营归纳模块</h2>
+            <p className="eyebrow">Assurance</p>
+            <h2>购买前可以确认的保障</h2>
           </div>
-          <p className="section-note">后端 `/api/summary` 汇总交易、履约、金融撮合与农户收益。</p>
+          <p className="section-note">这些数据来自交易服务汇总，但页面只展示顾客能理解并用于判断是否购买的信息。</p>
         </div>
 
         <div className="kpi-grid">
-          <Kpi title="平均客单价" value={formatCurrency(summary.trade.average_order_value)} tone="green" />
-          <Kpi title="金融撮合额" value={formatCurrency(summary.finance.loan_volume)} tone="blue" />
-          <Kpi title="平台服务费" value={formatCurrency(summary.finance.platform_service_fee)} tone="gold" />
-          <Kpi
-            title="农户增收"
-            value={formatCurrency(summary.farmer_value.total_incremental_income)}
-            tone="rose"
-          />
+          <Kpi title="已完成订单" value={`${summary.trade.paid_order_count} 笔`} tone="green" />
+          <Kpi title="平均送达" value={`${summary.fulfillment.average_delivery_hours}h`} tone="blue" />
+          <Kpi title="冷链合格率" value={percent(summary.fulfillment.temperature_pass_rate)} tone="gold" />
+          <Kpi title="平均损耗率" value={percent(summary.fulfillment.average_loss_rate)} tone="rose" />
         </div>
 
         <div className="dashboard-grid">
           <article className="analytics-card">
-            <h3>热销商品</h3>
+            <h3>热销推荐</h3>
             <div className="leader-list">
               {featuredProducts.map((product, index) => (
                 <div key={product.id}>
@@ -323,26 +329,23 @@ function App() {
             </div>
           </article>
           <article className="analytics-card">
-            <h3>渠道收入</h3>
-            {Object.entries(summary.trade.channel_revenue).map(([channelName, value]) => (
-              <div className="bar-row" key={channelName}>
-                <span>{channelName}</span>
-                <div>
-                  <i style={{ width: `${Math.min(100, (value / Math.max(1, summary.trade.gmv)) * 100)}%` }} />
-                </div>
-                <b>{formatCurrency(value)}</b>
-              </div>
-            ))}
+            <h3>每单可查的品质信息</h3>
+            <div className="assurance-list">
+              <div>电子耳标与批次编号</div>
+              <div>无抗养殖与检疫记录</div>
+              <div>0-4℃冷链温控轨迹</div>
+              <div>产地、加工、配送节点</div>
+            </div>
           </article>
           <article className="analytics-card">
-            <h3>履约质量</h3>
+            <h3>配送承诺</h3>
             <div className="quality-meter">
-              <strong>{percent(summary.fulfillment.average_loss_rate)}</strong>
-              <span>平均损耗率，目标低于 {percent(summary.fulfillment.loss_rate_target)}</span>
+              <strong>{summary.fulfillment.jit_target_hours}h</strong>
+              <span>目标时效内完成冷链配送</span>
             </div>
             <div className="quality-meter">
-              <strong>{summary.fulfillment.average_delivery_hours}h</strong>
-              <span>平均送达，目标 {summary.fulfillment.jit_target_hours}h 内</span>
+              <strong>{percent(summary.fulfillment.loss_rate_target)}</strong>
+              <span>目标损耗率上限</span>
             </div>
           </article>
         </div>
@@ -351,31 +354,48 @@ function App() {
       <section className="orders-band" id="orders">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Order Stream</p>
-            <h2>后端订单流</h2>
+            <p className="eyebrow">My Orders</p>
+            <h2>我的订单确认</h2>
           </div>
-          <button className="refresh-button" onClick={refreshBusinessData} type="button">
-            手动刷新
-          </button>
         </div>
-        <div className="order-list">
-          {recentOrders.map((order) => (
-            <article className="order-card" key={order.id}>
-              <div>
-                <span>{order.id}</span>
-                <strong>{order.customer_name}</strong>
-              </div>
-              <div>
-                <span>{order.channel}</span>
-                <strong>{formatCurrency(order.total_amount)}</strong>
-              </div>
-              <div>
-                <span>{order.customer_type}</span>
-                <strong>{order.status === "paid" ? "已成交" : "待处理"}</strong>
-              </div>
-            </article>
-          ))}
-        </div>
+        {lastOrder ? (
+          <article className="confirmation-panel">
+            <div>
+              <span>最近提交</span>
+              <strong>{lastOrder.id}</strong>
+            </div>
+            <div>
+              <span>确认金额</span>
+              <strong>{formatCurrency(lastOrder.total_amount)}</strong>
+            </div>
+            <div>
+              <span>订单状态</span>
+              <strong>{lastOrder.status === "paid" ? "已确认" : "处理中"}</strong>
+            </div>
+          </article>
+        ) : (
+          <div className="empty-cart">提交订单后，这里会显示订单号、金额和状态。</div>
+        )}
+        {submittedOrders.length > 0 && (
+          <div className="order-list">
+            {submittedOrders.map((order) => (
+              <article className="order-card" key={order.id}>
+                <div>
+                  <span>订单号</span>
+                  <strong>{order.id}</strong>
+                </div>
+                <div>
+                  <span>采购场景</span>
+                  <strong>{order.customer_type}</strong>
+                </div>
+                <div>
+                  <span>金额</span>
+                  <strong>{formatCurrency(order.total_amount)}</strong>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
     </main>
   );

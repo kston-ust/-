@@ -368,6 +368,13 @@ button {
   box-shadow: 0 0 0 3px rgba(31, 141, 101, 0.13);
 }
 
+.profile-help {
+  color: #7a8b7f;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -633,10 +640,48 @@ button {
   color: #607267;
 }
 
+.assurance-list {
+  display: grid;
+  gap: 10px;
+}
+
+.assurance-list div {
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: #385247;
+  background: #f3f7ef;
+  font-weight: 700;
+}
+
 .orders-band {
   width: min(1180px, 100%);
   margin: 0 auto;
   padding: 0 clamp(18px, 4vw, 0px) 80px;
+}
+
+.confirmation-panel {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid #b7d9c4;
+  border-radius: 8px;
+  padding: 18px;
+  margin-bottom: 14px;
+  background: #eaf7ef;
+  box-shadow: 0 16px 34px rgba(45, 61, 45, 0.08);
+}
+
+.confirmation-panel span {
+  display: block;
+  margin-bottom: 6px;
+  color: #607267;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.confirmation-panel strong {
+  color: #193126;
 }
 
 .order-list {
@@ -713,6 +758,7 @@ button {
 
   .form-grid,
   .cart-actions,
+  .confirmation-panel,
   .order-card {
     grid-template-columns: 1fr;
   }
