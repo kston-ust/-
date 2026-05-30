@@ -5,8 +5,10 @@ from typing import Annotated
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
+from .admin_console import build_admin_console_html
 from .database import (
     create_order,
     fetch_farmer_benefits,
@@ -46,6 +48,13 @@ class OrderIn(BaseModel):
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/admin", response_class=HTMLResponse)
+def admin_console() -> str:
+    init_db()
+    return build_admin_console_html()
 
 
 @app.get("/api/health")
