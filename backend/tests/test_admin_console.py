@@ -15,6 +15,8 @@ class AdminConsoleTest(unittest.TestCase):
         self.assertIn("/api/orders", html)
         self.assertIn("setInterval(refreshState", html)
         self.assertIn("filterOrders", html)
+        self.assertIn("function displayChannel", html)
+        self.assertIn("其他来源", html)
 
     def test_admin_console_does_not_create_frontend_orders(self):
         html = build_admin_console_html()

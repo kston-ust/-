@@ -18,6 +18,30 @@ def build_change_version(order_count: int, latest_order_id: str | None, total_gm
     return f"{order_count}:{latest_order_id or 'none'}:{_round_money(total_gmv)}"
 
 
+def _looks_garbled(value: str) -> bool:
+    return "?" in value or "\ufffd" in value or "锟" in value
+
+
+def normalize_channel_label(value: Any) -> str:
+    label = str(value or "").strip()
+    if not label:
+        return "其他来源"
+    if _looks_garbled(label):
+        if label.upper().startswith("B"):
+            return "B端集采"
+        if label.upper().startswith("C"):
+            return "C端小程序"
+        return "其他来源"
+    return label
+
+
+def normalize_customer_type_label(value: Any) -> str:
+    label = str(value or "").strip()
+    if not label or _looks_garbled(label):
+        return "其他客户"
+    return label
+
+
 def build_business_summary(
     orders: list[dict[str, Any]],
     shipments: list[dict[str, Any]],
@@ -33,8 +57,8 @@ def build_business_summary(
     channel_revenue: dict[str, float] = defaultdict(float)
     customer_mix: dict[str, int] = defaultdict(int)
     for order in paid_orders:
-        channel_revenue[str(order.get("channel", "未知渠道"))] += float(order.get("total_amount", 0))
-        customer_mix[str(order.get("customer_type", "未知客户"))] += 1
+        channel_revenue[normalize_channel_label(order.get("channel"))] += float(order.get("total_amount", 0))
+        customer_mix[normalize_customer_type_label(order.get("customer_type"))] += 1
         for item in order.get("items", []):
             product_id = str(item.get("product_id"))
             record = product_sales[product_id]

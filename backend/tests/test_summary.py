@@ -73,6 +73,36 @@ class BusinessSummaryTest(unittest.TestCase):
         self.assertEqual(summary["finance"]["platform_service_fee"], 0)
         self.assertEqual(summary["farmer_value"]["total_incremental_income"], 0)
 
+    def test_normalizes_garbled_business_labels(self):
+        summary = build_business_summary(
+            orders=[
+                {
+                    "id": "ORD-BAD-001",
+                    "channel": "B???",
+                    "customer_type": "????",
+                    "status": "paid",
+                    "total_amount": 138,
+                    "items": [],
+                },
+                {
+                    "id": "ORD-OK-001",
+                    "channel": "B端集采",
+                    "customer_type": "火锅连锁",
+                    "status": "paid",
+                    "total_amount": 1000,
+                    "items": [],
+                },
+            ],
+            shipments=[],
+            finance=[],
+            farmer_benefits=[],
+        )
+
+        self.assertNotIn("B???", summary["trade"]["channel_revenue"])
+        self.assertNotIn("????", summary["trade"]["customer_mix"])
+        self.assertEqual(summary["trade"]["channel_revenue"]["B端集采"], 1138)
+        self.assertEqual(summary["trade"]["customer_mix"]["其他客户"], 1)
+
     def test_change_version_tracks_paid_order_state(self):
         self.assertEqual(build_change_version(3, "ORD-202605-004", 194180), "3:ORD-202605-004:194180")
         self.assertEqual(build_change_version(4, "ORD-DEMO-001", 194640), "4:ORD-DEMO-001:194640")

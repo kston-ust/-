@@ -409,11 +409,32 @@ def build_admin_console_html() -> str:
         return String(value || "").toLowerCase();
       }
 
+      function looksGarbled(value) {
+        return String(value || "").includes("?") || String(value || "").includes("�");
+      }
+
+      function displayChannel(value) {
+        const label = String(value || "").trim();
+        if (!label) {
+          return "其他来源";
+        }
+        if (!looksGarbled(label)) {
+          return label;
+        }
+        if (label.toUpperCase().startsWith("B")) {
+          return "B端集采";
+        }
+        if (label.toUpperCase().startsWith("C")) {
+          return "C端小程序";
+        }
+        return "其他来源";
+      }
+
       function filterOrders() {
         const keyword = normalizeText(document.getElementById("order-keyword").value);
         const status = document.getElementById("status-filter").value;
         return state.orders.filter((order) => {
-          const text = normalizeText(`${order.id} ${order.customer_name} ${order.channel}`);
+          const text = normalizeText(`${order.id} ${order.customer_name} ${displayChannel(order.channel)}`);
           const matchesKeyword = !keyword || text.includes(keyword);
           const matchesStatus = status === "all" || order.status === status;
           return matchesKeyword && matchesStatus;
@@ -427,7 +448,7 @@ def build_admin_console_html() -> str:
             (order) => `<tr>
               <td>${order.id}</td>
               <td>${order.customer_name}</td>
-              <td>${order.channel}</td>
+              <td>${displayChannel(order.channel)}</td>
               <td>${money.format(order.total_amount)}</td>
               <td class="${order.status === "paid" ? "status-paid" : ""}">${order.status === "paid" ? "已确认" : "处理中"}</td>
             </tr>`,
