@@ -67,8 +67,8 @@ const seedOrders = [
     created_at: "2026-05-25T09:30:00",
     total_amount: 128000,
     items: [
-      { product_id: "P-LEG", name: "古浪精修羊腿", quantity: 80, unit_price: 780 },
-      { product_id: "P-CARCASS", name: "标准化白条羊", quantity: 50, unit_price: 1280 },
+      { product_id: "P-LEG", name: "古浪精修羊腿", quantity: 80, unit_price: 780, unit: "箱" },
+      { product_id: "P-CARCASS", name: "标准化白条羊", quantity: 50, unit_price: 1280, unit: "只" },
     ],
   },
   {
@@ -79,7 +79,17 @@ const seedOrders = [
     status: "paid",
     created_at: "2026-05-25T14:10:00",
     total_amount: 3680,
-    items: [{ product_id: "P-RACK", name: "北纬37度法式羊排", quantity: 8, unit_price: 460 }],
+    items: [{ product_id: "P-RACK", name: "北纬37度法式羊排", quantity: 8, unit_price: 460, unit: "盒" }],
+  },
+  {
+    id: "ORD-202605-003",
+    customer_name: "深圳高端社区团购",
+    channel: "C端小程序",
+    customer_type: "家庭会员",
+    status: "pending",
+    created_at: "2026-05-26T11:20:00",
+    total_amount: 920,
+    items: [{ product_id: "P-RACK", name: "北纬37度法式羊排", quantity: 2, unit_price: 460, unit: "盒" }],
   },
   {
     id: "ORD-202605-004",
@@ -90,16 +100,16 @@ const seedOrders = [
     created_at: "2026-05-27T16:45:00",
     total_amount: 62500,
     items: [
-      { product_id: "P-SOUP", name: "即食羊汤预制包", quantity: 500, unit_price: 69 },
-      { product_id: "P-LEG", name: "古浪精修羊腿", quantity: 36, unit_price: 780 },
+      { product_id: "P-SOUP", name: "即食羊汤预制包", quantity: 500, unit_price: 69, unit: "份" },
+      { product_id: "P-LEG", name: "古浪精修羊腿", quantity: 36, unit_price: 780, unit: "箱" },
     ],
   },
 ];
 
 const shipments = [
-  { order_id: "ORD-202605-001", hours_to_delivery: 30, loss_rate: 0.025, temperature_ok: 1 },
-  { order_id: "ORD-202605-002", hours_to_delivery: 20, loss_rate: 0.018, temperature_ok: 1 },
-  { order_id: "ORD-202605-004", hours_to_delivery: 36, loss_rate: 0.028, temperature_ok: 1 },
+  { order_id: "ORD-202605-001", hours_to_delivery: 30, loss_rate: 0.025, temperature_ok: true },
+  { order_id: "ORD-202605-002", hours_to_delivery: 20, loss_rate: 0.018, temperature_ok: true },
+  { order_id: "ORD-202605-004", hours_to_delivery: 36, loss_rate: 0.028, temperature_ok: true },
 ];
 
 const farmerBenefits = [
@@ -114,7 +124,7 @@ const financeRecords = [
   { farmer_id: "F-003", loan_amount: 180000, service_fee_rate: 0.017 },
 ];
 
-const merchants = [
+const seedMerchants = [
   {
     id: "MER-HHT",
     name: "古浪黄花滩合作社",
@@ -187,24 +197,93 @@ const seedListings = [
 ];
 
 let orders = structuredClone(seedOrders);
+let merchants = structuredClone(seedMerchants);
 let listings = structuredClone(seedListings);
-let orderVersion = 3;
+let assignments = new Map();
+
+const corsHeaders = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
+  "access-control-allow-headers": "content-type",
+};
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
     ...init,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "access-control-allow-origin": "*",
-      "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      ...corsHeaders,
       ...(init.headers || {}),
     },
   });
 }
 
-function html(body) {
-  return new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } });
+function noContent() {
+  return new Response(null, { status: 204, headers: corsHeaders });
+}
+
+function badRequest(detail, status = 400) {
+  return json({ detail }, { status });
+}
+
+async function readJson(request) {
+  try {
+    return await request.json();
+  } catch {
+    return {};
+  }
+}
+
+function roundMoney(value) {
+  return Math.round(Number(value || 0));
+}
+
+function average(values) {
+  if (!values.length) return 0;
+  return Number((values.reduce((sum, value) => sum + Number(value || 0), 0) / values.length).toFixed(4));
+}
+
+function sortedOrders() {
+  return [...orders].sort((left, right) => {
+    const dateCompare = right.created_at.localeCompare(left.created_at);
+    return dateCompare || right.id.localeCompare(left.id);
+  });
+}
+
+function publicMerchant(merchant) {
+  if (!merchant) return null;
+  const { password, ...publicData } = merchant;
+  return publicData;
+}
+
+function activeMerchants() {
+  return merchants
+    .filter((merchant) => merchant.status === "active")
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+}
+
+function defaultDueAt(createdAt) {
+  const timestamp = Date.parse(createdAt);
+  const base = Number.isNaN(timestamp) ? Date.now() : timestamp;
+  return new Date(base + 48 * 60 * 60 * 1000).toISOString().slice(0, 19);
+}
+
+function demandSummary(items) {
+  return items.map((item) => `${item.name} ${item.quantity} ${item.unit || "件"}`).join("，");
+}
+
+function ordersWithAssignments() {
+  return sortedOrders().map((order) => {
+    const assignment = assignments.get(order.id);
+    const merchant = assignment ? merchants.find((item) => item.id === assignment.merchant_id) : null;
+    return {
+      ...structuredClone(order),
+      assigned_merchant_id: assignment?.merchant_id || "",
+      assigned_merchant_name: merchant?.name || "",
+      assignment_due_at: assignment?.due_at || "",
+      assignment_status: assignment ? "已分配" : "未分配",
+    };
+  });
 }
 
 function totalAmount(items) {
@@ -215,93 +294,131 @@ function totalAmount(items) {
 }
 
 function summary() {
-  const paidOrders = orders.filter((order) => order.status === "paid");
-  const gmv = paidOrders.reduce((sum, order) => sum + order.total_amount, 0);
+  const paidOrders = ordersWithAssignments().filter((order) => order.status === "paid");
+  const gmv = roundMoney(paidOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0));
   const productTotals = new Map();
+  const channelRevenue = new Map();
+  const customerMix = new Map();
+
   for (const order of paidOrders) {
+    channelRevenue.set(order.channel, (channelRevenue.get(order.channel) || 0) + Number(order.total_amount || 0));
+    customerMix.set(order.customer_type, (customerMix.get(order.customer_type) || 0) + 1);
     for (const item of order.items || []) {
       const current = productTotals.get(item.product_id) || { name: item.name, quantity: 0, revenue: 0 };
-      current.quantity += item.quantity;
-      current.revenue += item.quantity * item.unit_price;
+      current.quantity += Number(item.quantity || 0);
+      current.revenue += Number(item.quantity || 0) * Number(item.unit_price || 0);
       productTotals.set(item.product_id, current);
     }
   }
-  const topProduct = [...productTotals.values()].sort((a, b) => b.revenue - a.revenue)[0] || null;
-  const channelRevenue = Object.fromEntries(
-    [...paidOrders.reduce((map, order) => map.set(order.channel, (map.get(order.channel) || 0) + order.total_amount), new Map())],
+
+  const topProduct = [...productTotals.values()].sort((left, right) => right.revenue - left.revenue)[0] || null;
+  const loanVolume = roundMoney(financeRecords.reduce((sum, record) => sum + Number(record.loan_amount || 0), 0));
+  const platformServiceFee = roundMoney(
+    financeRecords.reduce(
+      (sum, record) => sum + Number(record.loan_amount || 0) * Number(record.service_fee_rate || 0),
+      0,
+    ),
   );
-  const customerMix = Object.fromEntries(
-    [...paidOrders.reduce((map, order) => map.set(order.customer_type, (map.get(order.customer_type) || 0) + 1), new Map())],
+  const totalIncrementalIncome = roundMoney(
+    farmerBenefits.reduce(
+      (sum, benefit) => sum + Number(benefit.premium_income || 0) + Number(benefit.dividend || 0),
+      0,
+    ),
   );
-  const averageDeliveryHours =
-    shipments.reduce((sum, shipment) => sum + shipment.hours_to_delivery, 0) / Math.max(shipments.length, 1);
-  const averageLossRate = shipments.reduce((sum, shipment) => sum + shipment.loss_rate, 0) / Math.max(shipments.length, 1);
-  const temperaturePassRate =
-    shipments.filter((shipment) => shipment.temperature_ok).length / Math.max(shipments.length, 1);
-  const loanVolume = financeRecords.reduce((sum, record) => sum + record.loan_amount, 0);
-  const platformServiceFee = financeRecords.reduce(
-    (sum, record) => sum + record.loan_amount * record.service_fee_rate,
-    0,
-  );
-  const totalIncrementalIncome = farmerBenefits.reduce(
-    (sum, benefit) => sum + benefit.premium_income + benefit.dividend,
-    0,
-  );
+  const farmerCount = new Set(farmerBenefits.map((benefit) => benefit.farmer_id).filter(Boolean)).size;
+  const temperaturePassRate = shipments.length
+    ? Number((shipments.filter((shipment) => shipment.temperature_ok).length / shipments.length).toFixed(4))
+    : 0;
+
   return {
     trade: {
       gmv,
       paid_order_count: paidOrders.length,
-      average_order_value: Math.round(gmv / Math.max(paidOrders.length, 1)),
-      top_product: topProduct,
-      channel_revenue: channelRevenue,
-      customer_mix: customerMix,
+      average_order_value: paidOrders.length ? roundMoney(gmv / paidOrders.length) : 0,
+      top_product: topProduct
+        ? {
+            name: topProduct.name,
+            quantity: topProduct.quantity,
+            revenue: roundMoney(topProduct.revenue),
+          }
+        : null,
+      channel_revenue: Object.fromEntries(
+        [...channelRevenue.entries()]
+          .sort(([left], [right]) => left.localeCompare(right, "zh-CN"))
+          .map(([key, value]) => [key, roundMoney(value)]),
+      ),
+      customer_mix: Object.fromEntries([...customerMix.entries()].sort(([left], [right]) => left.localeCompare(right))),
     },
     fulfillment: {
-      average_delivery_hours: Number(averageDeliveryHours.toFixed(1)),
-      average_loss_rate: Number(averageLossRate.toFixed(4)),
-      temperature_pass_rate: Number(temperaturePassRate.toFixed(4)),
+      average_delivery_hours: average(shipments.map((shipment) => shipment.hours_to_delivery)),
+      average_loss_rate: average(shipments.map((shipment) => shipment.loss_rate)),
+      temperature_pass_rate: temperaturePassRate,
       jit_target_hours: 48,
       loss_rate_target: 0.03,
     },
     finance: {
       loan_volume: loanVolume,
-      platform_service_fee: Math.round(platformServiceFee),
-      average_service_fee_rate: Number((platformServiceFee / Math.max(loanVolume, 1)).toFixed(4)),
+      platform_service_fee: platformServiceFee,
+      average_service_fee_rate: average(financeRecords.map((record) => record.service_fee_rate)),
     },
     farmer_value: {
-      farmer_count: farmerBenefits.length,
+      farmer_count: farmerCount,
       total_incremental_income: totalIncrementalIncome,
-      average_incremental_income: Math.round(totalIncrementalIncome / Math.max(farmerBenefits.length, 1)),
+      average_incremental_income: farmerCount ? roundMoney(totalIncrementalIncome / farmerCount) : 0,
     },
   };
 }
 
+function changeState() {
+  const paidOrders = sortedOrders().filter((order) => order.status === "paid");
+  const totalGmv = roundMoney(paidOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0));
+  const latest = paidOrders[0];
+  return {
+    version: `${paidOrders.length}:${latest?.id || "none"}:${totalGmv}`,
+    order_count: paidOrders.length,
+    latest_order_id: latest?.id || null,
+    latest_order_at: latest?.created_at || null,
+    total_gmv: totalGmv,
+  };
+}
+
+function premiumRate(qualityScore) {
+  return Number(Math.min(0.18, Math.max(0.05, (Number(qualityScore || 0) - 85) / 100)).toFixed(4));
+}
+
 function supplyMatches() {
   const productLookup = new Map(products.map((product) => [product.id, product]));
-  const available = listings.map((listing) => ({ ...listing, remaining: listing.available_quantity }));
+  const available = listings
+    .filter((listing) => listing.status === "listed" && Number(listing.available_quantity || 0) > 0)
+    .map((listing) => ({ ...listing, remaining: Number(listing.available_quantity || 0) }));
   const matches = [];
-  for (const order of orders.filter((item) => item.status === "paid")) {
+
+  for (const order of ordersWithAssignments().filter((item) => item.status === "paid")) {
     for (const item of order.items || []) {
-      const listing = available.find((candidate) => candidate.product_id === item.product_id && candidate.remaining > 0);
+      const listing = available.find(
+        (candidate) => candidate.product_id === item.product_id && Number(candidate.remaining || 0) > 0,
+      );
       if (!listing) continue;
-      const matchedQuantity = Math.min(item.quantity, listing.remaining);
+
+      const matchedQuantity = Math.min(Number(item.quantity || 0), listing.remaining);
       listing.remaining -= matchedQuantity;
-      const premiumRate = Math.min(0.18, Math.max(0.05, (listing.quality_score - 85) / 100));
+      const rate = premiumRate(listing.quality_score);
+      const product = productLookup.get(item.product_id) || {};
       matches.push({
         order_id: order.id,
         customer_name: order.customer_name,
         channel: order.channel,
         product_id: item.product_id,
-        product_name: item.name,
+        product_name: item.name || product.name || item.product_id,
         listing_id: listing.id,
         farmer_name: listing.farmer_name,
         origin_base: listing.origin_base,
         matched_quantity: matchedQuantity,
         pricing: {
-          floor_price: Math.round(listing.floor_price),
-          settlement_price: Math.round(listing.floor_price * (1 + premiumRate)),
-          terminal_reference_price: Math.round(productLookup.get(item.product_id)?.price || item.unit_price),
-          premium_rate: Number(premiumRate.toFixed(4)),
+          floor_price: roundMoney(listing.floor_price),
+          settlement_price: roundMoney(Number(listing.floor_price || 0) * (1 + rate)),
+          terminal_reference_price: roundMoney(product.price || item.unit_price),
+          premium_rate: rate,
         },
         jit: {
           status: "订单即排产",
@@ -312,166 +429,293 @@ function supplyMatches() {
       });
     }
   }
+
   return matches;
 }
 
-function adminPage() {
-  const overview = summary();
-  return `<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>西域羊都运营数据中心</title>
-  <style>
-    body { margin: 0; background: #f5f7f0; color: #203227; font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif; }
-    main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0 48px; }
-    h1 { margin: 0 0 8px; font-size: clamp(28px, 5vw, 48px); }
-    p { color: #66756a; line-height: 1.7; }
-    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 24px 0; }
-    .card { border: 1px solid #dbe4d5; border-radius: 8px; padding: 18px; background: #fff; box-shadow: 0 14px 34px rgba(43,58,45,.08); }
-    .card span { color: #66756a; font-weight: 800; font-size: 13px; }
-    .card strong { display: block; margin-top: 10px; font-size: 26px; }
-    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; }
-    th, td { border-bottom: 1px solid #e6ece0; padding: 12px; text-align: left; }
-    th { color: #66756a; font-size: 13px; }
-    a { color: #28644f; font-weight: 900; }
-    @media (max-width: 760px) { .grid { grid-template-columns: 1fr 1fr; } }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>西域羊都运营数据中心</h1>
-    <p>Cloudflare Workers 线上演示后台，聚合交易、履约、商品和供应链撮合数据。客户下单入口在 <a href="/">前端商城</a>。</p>
-    <section class="grid">
-      <div class="card"><span>已确认订单</span><strong>${overview.trade.paid_order_count}</strong></div>
-      <div class="card"><span>累计交易额</span><strong>¥${overview.trade.gmv.toLocaleString("zh-CN")}</strong></div>
-      <div class="card"><span>平均送达</span><strong>${overview.fulfillment.average_delivery_hours}h</strong></div>
-      <div class="card"><span>冷链合格率</span><strong>${Math.round(overview.fulfillment.temperature_pass_rate * 100)}%</strong></div>
-    </section>
-    <table>
-      <thead><tr><th>订单号</th><th>客户</th><th>来源</th><th>金额</th><th>状态</th></tr></thead>
-      <tbody>${orders
-        .map(
-          (order) =>
-            `<tr><td>${order.id}</td><td>${order.customer_name}</td><td>${order.channel}</td><td>¥${order.total_amount.toLocaleString("zh-CN")}</td><td>${order.status}</td></tr>`,
-        )
-        .join("")}</tbody>
-    </table>
-  </main>
-</body>
-</html>`;
+function orderAnalysis() {
+  const enrichedOrders = ordersWithAssignments();
+  const daily = new Map();
+  const productSales = new Map();
+
+  for (const order of enrichedOrders) {
+    const day = String(order.created_at || "").slice(0, 10);
+    const currentDay = daily.get(day) || { date: day, order_count: 0, gmv: 0 };
+    currentDay.order_count += 1;
+    currentDay.gmv += Number(order.total_amount || 0);
+    daily.set(day, currentDay);
+
+    for (const item of order.items || []) {
+      const currentProduct = productSales.get(item.product_id) || {
+        product_id: item.product_id,
+        name: item.name,
+        quantity: 0,
+        revenue: 0,
+      };
+      currentProduct.quantity += Number(item.quantity || 0);
+      currentProduct.revenue += Number(item.quantity || 0) * Number(item.unit_price || 0);
+      productSales.set(item.product_id, currentProduct);
+    }
+  }
+
+  const assignedOrderCount = enrichedOrders.filter((order) => order.assignment_status === "已分配").length;
+  return {
+    total_order_count: enrichedOrders.length,
+    assigned_order_count: assignedOrderCount,
+    unassigned_order_count: enrichedOrders.length - assignedOrderCount,
+    paid_order_count: enrichedOrders.filter((order) => order.status === "paid").length,
+    daily_trend: [...daily.values()]
+      .map((item) => ({ ...item, gmv: roundMoney(item.gmv) }))
+      .sort((left, right) => left.date.localeCompare(right.date)),
+    product_sales: [...productSales.values()]
+      .map((item) => ({ ...item, revenue: roundMoney(item.revenue) }))
+      .sort((left, right) => right.quantity - left.quantity || String(left.product_id).localeCompare(right.product_id)),
+  };
+}
+
+function chooseMerchantForOrder(order, availableMerchants) {
+  const productIds = new Set((order.items || []).map((item) => item.product_id));
+  return availableMerchants.find((merchant) => productIds.has(merchant.product_focus)) || availableMerchants[0] || null;
+}
+
+function assignOrder(orderId, merchantId, payload = {}) {
+  const order = orders.find((item) => item.id === orderId);
+  const merchant = merchants.find((item) => item.id === merchantId && item.status === "active");
+  if (!order) return { error: `Unknown order id: ${orderId}`, status: 404 };
+  if (!merchant) return { error: `Unknown merchant id: ${merchantId}`, status: 404 };
+
+  const assignment = {
+    order_id: orderId,
+    merchant_id: merchantId,
+    assigned_at: new Date().toISOString().slice(0, 19),
+    due_at: payload.due_at || defaultDueAt(order.created_at),
+    status: payload.status || "assigned",
+    note: payload.note || "",
+  };
+  assignments.set(orderId, assignment);
+  return assignment;
+}
+
+function batchAssignOrders() {
+  const availableMerchants = activeMerchants();
+  const newAssignments = [];
+  for (const order of sortedOrders()) {
+    if (order.status !== "paid" || assignments.has(order.id)) continue;
+    const merchant = chooseMerchantForOrder(order, availableMerchants);
+    if (!merchant) continue;
+    newAssignments.push(
+      assignOrder(order.id, merchant.id, { note: "批量分配：按订单商品与商户主供品类匹配" }),
+    );
+  }
+  return { assigned_count: newAssignments.length, assignments: newAssignments };
+}
+
+function merchantTasks(merchantId) {
+  return [...assignments.values()]
+    .filter((assignment) => assignment.merchant_id === merchantId)
+    .map((assignment) => {
+      const order = orders.find((item) => item.id === assignment.order_id);
+      if (!order) return null;
+      const items = structuredClone(order.items || []);
+      return {
+        ...assignment,
+        customer_name: order.customer_name,
+        channel: order.channel,
+        customer_type: order.customer_type,
+        order_status: order.status,
+        created_at: order.created_at,
+        total_amount: order.total_amount,
+        items,
+        demand_summary: demandSummary(items),
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.due_at.localeCompare(right.due_at) || right.created_at.localeCompare(left.created_at));
+}
+
+function customerOrders(keyword) {
+  const normalized = String(keyword || "").trim().toLowerCase();
+  if (!normalized) return [];
+  return ordersWithAssignments().filter((order) => {
+    const itemNames = (order.items || []).map((item) => item.name).join(" ");
+    const haystack = `${order.id} ${order.customer_name} ${order.channel} ${itemNames}`.toLowerCase();
+    return haystack.includes(normalized);
+  });
+}
+
+function productTrace(productId) {
+  const product = products.find((item) => item.id === productId);
+  if (!product) return null;
+  return {
+    product_id: product.id,
+    product_name: product.name,
+    trace_label: product.trace_label,
+    nodes: ["电子耳标确权", "无抗养殖台账", "屠宰检疫合格", "0-4℃冷链轨迹", "终端扫码验真"],
+  };
 }
 
 async function handleApi(request, pathname) {
-  if (request.method === "OPTIONS") return json({});
-  if (pathname === "/api/health") return json({ status: "ok", service: "xiyu-yangdu-cloudflare-worker" });
-  if (pathname === "/api/products") return json(products);
-  if (pathname === "/api/orders" && request.method === "GET") return json(orders);
-  if (pathname === "/api/customer/orders") {
-    const keyword = new URL(request.url).searchParams.get("keyword")?.toLowerCase() || "";
-    if (!keyword) return json([]);
-    return json(
-      orders.filter(
-        (order) =>
-          order.id.toLowerCase().includes(keyword) ||
-          order.customer_name.toLowerCase().includes(keyword) ||
-          order.items.some((item) => item.name.toLowerCase().includes(keyword)),
-      ),
-    );
-  }
-  if (pathname === "/api/summary") return json(summary());
-  if (pathname === "/api/change-state") {
-    const overview = summary();
-    return json({
-      version: `${orderVersion}:${orders[0]?.id || "none"}:${overview.trade.gmv}`,
-      order_count: orders.length,
-      latest_order_id: orders[0]?.id || "",
-      latest_order_at: orders[0]?.created_at || "",
-      total_gmv: overview.trade.gmv,
-    });
-  }
-  if (pathname === "/api/supply-listings") return json(listings);
-  if (pathname === "/api/supply-matches") return json(supplyMatches());
-  if (pathname === "/api/merchant/login" && request.method === "POST") {
-    const payload = await request.json();
-    const merchant = merchants.find((item) => item.account === payload.account && item.password === payload.password);
-    return merchant ? json(merchant) : json({ detail: "商户账号或密码不正确" }, { status: 401 });
-  }
-  const taskMatch = pathname.match(/^\/api\/merchant\/([^/]+)\/tasks$/);
-  if (taskMatch) {
-    const merchantId = decodeURIComponent(taskMatch[1]);
-    return json(
-      supplyMatches()
-        .filter((match) => listings.find((listing) => listing.id === match.listing_id)?.merchant_id === merchantId)
-        .map((match) => ({
-          order_id: match.order_id,
-          customer_name: match.customer_name,
-          due_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-          demand_summary: `${match.product_name} ${match.matched_quantity} 件`,
-          items: [{ name: match.product_name, quantity: match.matched_quantity }],
-        })),
-    );
-  }
-  const listingMatch = pathname.match(/^\/api\/merchant\/([^/]+)\/listings$/);
-  if (listingMatch && request.method === "GET") {
-    const merchantId = decodeURIComponent(listingMatch[1]);
-    return json(listings.filter((listing) => listing.merchant_id === merchantId));
-  }
-  if (listingMatch && request.method === "POST") {
-    const merchantId = decodeURIComponent(listingMatch[1]);
-    const merchant = merchants.find((item) => item.id === merchantId);
-    if (!merchant) return json({ detail: "Merchant not found" }, { status: 404 });
-    const payload = await request.json();
-    const listing = {
-      id: `LIST-CF-${Date.now()}`,
-      farmer_name: merchant.name,
-      origin_base: merchant.origin_base,
-      product_id: payload.product_id,
-      available_quantity: Number(payload.available_quantity),
-      floor_price: Number(payload.floor_price),
-      quality_score: Number(payload.quality_score || 90),
-      available_at: payload.available_at || new Date().toISOString(),
-      status: "listed",
-      merchant_id: merchantId,
-    };
-    listings = [listing, ...listings];
-    return json(listing, { status: 201 });
-  }
-  if (pathname === "/api/orders" && request.method === "POST") {
-    const payload = await request.json();
-    const items = payload.items.map((item) => {
-      const product = products.find((candidate) => candidate.id === item.product_id);
-      if (!product) throw new Error(`Unknown product id: ${item.product_id}`);
-      return {
-        product_id: product.id,
-        name: product.name,
-        quantity: Number(item.quantity),
-        unit_price: product.price,
+  if (request.method === "OPTIONS") return noContent();
+  const method = request.method.toUpperCase();
+  const url = new URL(request.url);
+
+  try {
+    if (pathname === "/api/health") return json({ status: "ok", service: "xiyu-yangdu-cloudflare-worker" });
+    if (pathname === "/api/products" && method === "GET") return json(products);
+    if (pathname === "/api/orders" && method === "GET") return json(ordersWithAssignments());
+    if (pathname === "/api/customer/orders" && method === "GET") {
+      return json(customerOrders(url.searchParams.get("keyword")));
+    }
+    if (pathname === "/api/summary" && method === "GET") return json(summary());
+    if (pathname === "/api/change-state" && method === "GET") return json(changeState());
+    if (pathname === "/api/supply-listings" && method === "GET") return json(listings);
+    if (pathname === "/api/supply-matches" && method === "GET") return json(supplyMatches());
+    if (pathname === "/api/merchants" && method === "GET") return json(activeMerchants());
+    if (pathname === "/api/order-analysis" && method === "GET") return json(orderAnalysis());
+
+    if (pathname === "/api/orders/assign-batch" && method === "POST") {
+      return json(batchAssignOrders());
+    }
+
+    if (pathname === "/api/merchant/login" && method === "POST") {
+      const payload = await readJson(request);
+      const merchant = merchants.find(
+        (item) =>
+          item.status === "active" &&
+          item.account === String(payload.account || "").trim() &&
+          item.password === String(payload.password || ""),
+      );
+      return merchant ? json(publicMerchant(merchant)) : badRequest("商户账号或密码不正确", 401);
+    }
+
+    if (pathname === "/api/merchants" && method === "POST") {
+      const payload = await readJson(request);
+      const account = String(payload.account || "").trim();
+      const name = String(payload.name || "").trim();
+      const password = String(payload.password || "");
+      if (name.length < 2 || account.length < 2 || password.length < 4) {
+        return badRequest("商户名称、账号或密码不完整");
+      }
+      if (merchants.some((item) => item.account === account)) return badRequest("商户账号已存在");
+      const merchant = {
+        id: payload.id || `MER-${account.toUpperCase().replace(/[^A-Z0-9]/g, "") || Date.now()}`,
+        name,
+        account,
+        password,
+        contact: String(payload.contact || "").trim(),
+        origin_base: String(payload.origin_base || "").trim(),
+        product_focus: String(payload.product_focus || "P-LEG"),
+        status: "active",
       };
-    });
-    const order = {
-      id: `ORD-CF-${Date.now()}`,
-      customer_name: payload.customer_name,
-      channel: payload.channel || "C端小程序",
-      customer_type: payload.customer_type || "家庭会员",
-      status: "paid",
-      created_at: new Date().toISOString(),
-      total_amount: totalAmount(items),
-      items,
-    };
-    orders = [order, ...orders].slice(0, 12);
-    orderVersion += 1;
-    return json(order, { status: 201 });
+      if (merchants.some((item) => item.id === merchant.id)) merchant.id = `MER-CF-${Date.now()}`;
+      merchants = [merchant, ...merchants];
+      return json(publicMerchant(merchant), { status: 201 });
+    }
+
+    if (pathname === "/api/orders" && method === "POST") {
+      const payload = await readJson(request);
+      const items = (payload.items || []).map((item) => {
+        const product = products.find((candidate) => candidate.id === item.product_id);
+        if (!product) throw new Error(`Unknown product id: ${item.product_id}`);
+        return {
+          product_id: product.id,
+          name: product.name,
+          quantity: Number(item.quantity),
+          unit_price: product.price,
+          unit: product.unit,
+        };
+      });
+      if (!String(payload.customer_name || "").trim() || !items.length) {
+        return badRequest("客户名称和商品明细不能为空");
+      }
+      const order = {
+        id: payload.id || `ORD-CF-${Date.now()}`,
+        customer_name: String(payload.customer_name).trim(),
+        channel: payload.channel || "C端小程序",
+        customer_type: payload.customer_type || "家庭会员",
+        status: "paid",
+        created_at: payload.created_at || new Date().toISOString().slice(0, 19),
+        total_amount: totalAmount(items),
+        items,
+      };
+      orders = [order, ...orders].slice(0, 12);
+      return json({ ...order, assignment_status: "未分配", assigned_merchant_id: "", assigned_merchant_name: "" }, { status: 201 });
+    }
+
+    const merchantDeleteMatch = pathname.match(/^\/api\/merchants\/([^/]+)$/);
+    if (merchantDeleteMatch && method === "DELETE") {
+      const merchantId = decodeURIComponent(merchantDeleteMatch[1]);
+      merchants = merchants.filter((merchant) => merchant.id !== merchantId);
+      listings = listings.filter((listing) => listing.merchant_id !== merchantId);
+      assignments = new Map([...assignments.entries()].filter(([, assignment]) => assignment.merchant_id !== merchantId));
+      return noContent();
+    }
+
+    const assignmentMatch = pathname.match(/^\/api\/orders\/([^/]+)\/assign$/);
+    if (assignmentMatch && method === "POST") {
+      const orderId = decodeURIComponent(assignmentMatch[1]);
+      const payload = await readJson(request);
+      const assignment = assignOrder(orderId, payload.merchant_id, payload);
+      if (assignment.error) return badRequest(assignment.error, assignment.status);
+      return json(assignment);
+    }
+
+    const taskMatch = pathname.match(/^\/api\/merchant\/([^/]+)\/tasks$/);
+    if (taskMatch && method === "GET") {
+      return json(merchantTasks(decodeURIComponent(taskMatch[1])));
+    }
+
+    const listingMatch = pathname.match(/^\/api\/merchant\/([^/]+)\/listings$/);
+    if (listingMatch && method === "GET") {
+      const merchantId = decodeURIComponent(listingMatch[1]);
+      return json(listings.filter((listing) => listing.merchant_id === merchantId));
+    }
+    if (listingMatch && method === "POST") {
+      const merchantId = decodeURIComponent(listingMatch[1]);
+      const merchant = merchants.find((item) => item.id === merchantId && item.status === "active");
+      if (!merchant) return badRequest(`Unknown merchant id: ${merchantId}`, 404);
+      const payload = await readJson(request);
+      const product = products.find((item) => item.id === payload.product_id);
+      if (!product) return badRequest(`Unknown product id: ${payload.product_id}`, 404);
+      const listing = {
+        id: payload.id || `LIST-${merchantId.replace("MER-", "")}-${Date.now()}`,
+        farmer_name: merchant.name,
+        origin_base: merchant.origin_base,
+        product_id: product.id,
+        available_quantity: Number(payload.available_quantity),
+        floor_price: Number(payload.floor_price),
+        quality_score: Number(payload.quality_score || 90),
+        available_at: payload.available_at || new Date().toISOString().slice(0, 19),
+        status: "listed",
+        merchant_id: merchantId,
+      };
+      if (listing.available_quantity < 1 || listing.floor_price <= 0) return badRequest("挂单数量和底价必须大于 0");
+      listings = [listing, ...listings];
+      return json(listing, { status: 201 });
+    }
+
+    const traceMatch = pathname.match(/^\/api\/trace\/([^/]+)$/);
+    if (traceMatch && method === "GET") {
+      const trace = productTrace(decodeURIComponent(traceMatch[1]));
+      return trace ? json(trace) : badRequest("Product not found", 404);
+    }
+
+    return badRequest("Not found", 404);
+  } catch (error) {
+    return badRequest(error instanceof Error ? error.message : "Request failed", 400);
   }
-  return json({ detail: "Not found" }, { status: 404 });
+}
+
+function serveAdmin(request, env) {
+  const adminUrl = new URL("/admin/index.html", request.url);
+  return env.ASSETS.fetch(new Request(adminUrl, request));
 }
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) return handleApi(request, url.pathname);
-    if (url.pathname === "/admin") return html(adminPage());
+    if (url.pathname === "/admin" || url.pathname === "/admin/") return serveAdmin(request, env);
     return env.ASSETS.fetch(request);
   },
 };
