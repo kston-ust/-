@@ -11,7 +11,7 @@ export const fallbackProducts = [
     monthlySales: 930,
     digitalPremiumRate: 0.18,
     traceLabel: "批次检疫合格证 + 温控轨迹",
-    image: "soup",
+    image: "/products/lamb-soup.jpg",
   },
   {
     id: "P-LEG",
@@ -25,7 +25,7 @@ export const fallbackProducts = [
     monthlySales: 520,
     digitalPremiumRate: 0.22,
     traceLabel: "24道智慧加工工序记录",
-    image: "leg",
+    image: "/products/lamb-leg.jpg",
   },
   {
     id: "P-RACK",
@@ -39,7 +39,7 @@ export const fallbackProducts = [
     monthlySales: 368,
     digitalPremiumRate: 0.28,
     traceLabel: "区块链溯源卡 + 无抗养殖记录",
-    image: "rack",
+    image: "/products/lamb-rack.jpg",
   },
   {
     id: "P-CARCASS",
@@ -53,7 +53,7 @@ export const fallbackProducts = [
     monthlySales: 210,
     digitalPremiumRate: 0.12,
     traceLabel: "电子耳标 + 屠宰检疫联单",
-    image: "carcass",
+    image: "/products/lamb-carcass.jpg",
   },
 ];
 
@@ -119,7 +119,105 @@ export const fallbackOrders = [
   },
 ];
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+export const fallbackSupplyMatches = [
+  {
+    order_id: "ORD-202605-004",
+    customer_name: "华东精品商超",
+    channel: "B端集采",
+    product_id: "P-SOUP",
+    product_name: "即食羊汤预制包",
+    listing_id: "LIST-003",
+    farmer_name: "土门镇联营牧场",
+    origin_base: "土门镇冷链前置仓",
+    matched_quantity: 500,
+    pricing: {
+      floor_price: 56,
+      settlement_price: 59,
+      terminal_reference_price: 69,
+      premium_rate: 0.06,
+    },
+    jit: {
+      status: "订单即排产",
+      slaughter_window: "T+0.5天",
+      cold_chain_target_hours: 48,
+      loss_rate_target: 0.03,
+    },
+  },
+  {
+    order_id: "ORD-202605-002",
+    customer_name: "上海陆家嘴家庭会员",
+    channel: "C端小程序",
+    product_id: "P-RACK",
+    product_name: "北纬37度法式羊排",
+    listing_id: "LIST-002",
+    farmer_name: "西靖镇标准化养殖户",
+    origin_base: "西靖镇无抗养殖示范区",
+    matched_quantity: 8,
+    pricing: {
+      floor_price: 410,
+      settlement_price: 459,
+      terminal_reference_price: 460,
+      premium_rate: 0.12,
+    },
+    jit: {
+      status: "订单即排产",
+      slaughter_window: "T+0.5天",
+      cold_chain_target_hours: 48,
+      loss_rate_target: 0.03,
+    },
+  },
+];
+
+export const fallbackSupplyListings = [
+  {
+    id: "LIST-001",
+    farmer_name: "古浪黄花滩合作社",
+    origin_base: "古浪黄花滩数字养殖基地",
+    product_id: "P-LEG",
+    available_quantity: 120,
+    floor_price: 700,
+    quality_score: 94,
+    available_at: "2026-05-30T09:00:00",
+    status: "listed",
+  },
+  {
+    id: "LIST-002",
+    farmer_name: "西靖镇标准化养殖户",
+    origin_base: "西靖镇无抗养殖示范区",
+    product_id: "P-RACK",
+    available_quantity: 80,
+    floor_price: 410,
+    quality_score: 97,
+    available_at: "2026-05-30T11:00:00",
+    status: "listed",
+  },
+  {
+    id: "LIST-003",
+    farmer_name: "土门镇联营牧场",
+    origin_base: "土门镇冷链前置仓",
+    product_id: "P-SOUP",
+    available_quantity: 600,
+    floor_price: 56,
+    quality_score: 91,
+    available_at: "2026-05-30T14:00:00",
+    status: "listed",
+  },
+];
+
+export const fallbackMerchantTasks = [];
+
+const productImageMap = {
+  soup: "/products/lamb-soup.jpg",
+  leg: "/products/lamb-leg.jpg",
+  rack: "/products/lamb-rack.jpg",
+  carcass: "/products/lamb-carcass.jpg",
+};
+
+const API_BASE = import.meta.env?.VITE_API_BASE || "http://localhost:8000";
+
+function normalizeProductImage(image) {
+  return productImageMap[image] || image || "/products/lamb-rack.jpg";
+}
 
 function normalizeProduct(product) {
   return {
@@ -127,6 +225,7 @@ function normalizeProduct(product) {
     monthlySales: product.monthly_sales ?? product.monthlySales,
     digitalPremiumRate: product.digital_premium_rate ?? product.digitalPremiumRate,
     traceLabel: product.trace_label ?? product.traceLabel,
+    image: normalizeProductImage(product.image),
   };
 }
 
@@ -157,6 +256,55 @@ export async function fetchChangeState() {
 
 export async function fetchOrders() {
   return requestJson("/api/orders", fallbackOrders);
+}
+
+export async function fetchCustomerOrders(keyword) {
+  if (!keyword.trim()) {
+    return [];
+  }
+  return requestJson(`/api/customer/orders?keyword=${encodeURIComponent(keyword.trim())}`, []);
+}
+
+export async function fetchSupplyMatches() {
+  return requestJson("/api/supply-matches", fallbackSupplyMatches);
+}
+
+export async function fetchSupplyListings() {
+  return requestJson("/api/supply-listings", fallbackSupplyListings);
+}
+
+export async function fetchMerchantTasks(merchantId) {
+  return requestJson(`/api/merchant/${encodeURIComponent(merchantId)}/tasks`, fallbackMerchantTasks);
+}
+
+export async function fetchMerchantListings(merchantId) {
+  return requestJson(`/api/merchant/${encodeURIComponent(merchantId)}/listings`, []);
+}
+
+export async function createMerchantListing(merchantId, payload) {
+  const response = await fetch(`${API_BASE}/api/merchant/${encodeURIComponent(merchantId)}/listings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Listing failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function merchantLogin(payload) {
+  const response = await fetch(`${API_BASE}/api/merchant/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Login failed: ${response.status}`);
+  }
+  return response.json();
 }
 
 export async function submitOrder(payload) {

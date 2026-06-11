@@ -4,19 +4,28 @@ import {
   fallbackChangeState,
   fallbackProducts,
   fallbackSummary,
+  createMerchantListing,
   fetchChangeState,
+  fetchCustomerOrders,
+  fetchMerchantListings,
+  fetchMerchantTasks,
   fetchProducts,
   fetchSummary,
+  merchantLogin,
   submitOrder,
 } from "./api.js";
 import {
   buildOrderItems,
+  canLoginMerchant,
   canSubmitCart,
   deriveCartTotals,
+  filterMerchantTasks,
+  findCustomerOrders,
   formatCurrency,
   percent,
   pickFeaturedProducts,
   shouldRefreshData,
+  summarizeMerchantTask,
 } from "./summary.js";
 import "./styles.css";
 
@@ -52,16 +61,16 @@ const purchaseProfiles = [
   },
 ];
 
-function ProductVisual({ type }) {
+function ProductPhoto({ product }) {
   return (
-    <div className={`product-visual product-visual-${type}`}>
-      <span />
-      <strong>{type === "soup" ? "24h" : type === "carcass" ? "B2B" : "37°"}</strong>
+    <div className="product-photo">
+      <img src={product.image} alt={`${product.name} product photo`} loading="lazy" />
     </div>
   );
 }
 
 function App() {
+  const [activeView, setActiveView] = useState("customer");
   const [products, setProducts] = useState(fallbackProducts);
   const [summary, setSummary] = useState(fallbackSummary);
   const [activeCategory, setActiveCategory] = useState("全部");
@@ -71,8 +80,23 @@ function App() {
   const [status, setStatus] = useState({ type: "idle", text: "请选择商品，确认后会生成一笔模拟交易订单。" });
   const [lastOrder, setLastOrder] = useState(null);
   const [submittedOrders, setSubmittedOrders] = useState([]);
+  const [orderQuery, setOrderQuery] = useState("");
+  const [queriedOrders, setQueriedOrders] = useState([]);
+  const [orderQueryStatus, setOrderQueryStatus] = useState("输入订单号、客户名或商品名查询。");
   const [changeState, setChangeState] = useState(fallbackChangeState);
   const [lastCheckedAt, setLastCheckedAt] = useState("");
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [merchantAccount, setMerchantAccount] = useState("");
+  const [merchantPassword, setMerchantPassword] = useState("");
+  const [merchantStatus, setMerchantStatus] = useState("请输入商户账号和密码。");
+  const [merchant, setMerchant] = useState(null);
+  const [merchantTasks, setMerchantTasks] = useState([]);
+  const [merchantTaskQuery, setMerchantTaskQuery] = useState("");
+  const [merchantListings, setMerchantListings] = useState([]);
+  const [listingProductId, setListingProductId] = useState("P-LEG");
+  const [listingQuantity, setListingQuantity] = useState(20);
+  const [listingFloorPrice, setListingFloorPrice] = useState(700);
+  const [listingStatus, setListingStatus] = useState("填写数量和底价后可提交挂单。");
   const changeStateRef = useRef(fallbackChangeState);
 
   function rememberChangeState(nextState) {
@@ -195,6 +219,214 @@ function App() {
     }
   }
 
+  async function handleOrderQuery() {
+    if (!orderQuery.trim()) {
+      setQueriedOrders([]);
+      setOrderQueryStatus("请输入订单号、客户名或商品名后查询。");
+      return;
+    }
+    setOrderQueryStatus("正在查询订单...");
+    try {
+      const orders = await fetchCustomerOrders(orderQuery);
+      setQueriedOrders(orders);
+      setOrderQueryStatus(orders.length ? `找到 ${orders.length} 笔相关订单。` : "没有找到匹配订单。");
+    } catch {
+      const fallbackMatches = findCustomerOrders(submittedOrders, orderQuery);
+      setQueriedOrders(fallbackMatches);
+      setOrderQueryStatus(fallbackMatches.length ? "已在本次提交记录中找到订单。" : "暂时无法连接订单查询服务。");
+    }
+  }
+
+  async function refreshMerchantWorkspace(nextMerchant = merchant) {
+    if (!nextMerchant) {
+      return;
+    }
+    const [tasks, listings] = await Promise.all([fetchMerchantTasks(nextMerchant.id), fetchMerchantListings(nextMerchant.id)]);
+    setMerchantTasks(tasks);
+    setMerchantListings(listings);
+  }
+
+  async function handleMerchantLogin() {
+    if (!canLoginMerchant(merchantAccount, merchantPassword)) {
+      setMerchantStatus("请填写至少 2 位账号和 4 位密码。");
+      return;
+    }
+    setMerchantStatus("正在验证商户身份...");
+    try {
+      const nextMerchant = await merchantLogin({
+        account: merchantAccount.trim(),
+        password: merchantPassword,
+      });
+      setMerchant(nextMerchant);
+      setActiveView("merchant");
+      setLoginOpen(false);
+      setMerchantStatus("登录成功。");
+      await refreshMerchantWorkspace(nextMerchant);
+    } catch {
+      setMerchantStatus("账号或密码不正确，请联系平台后台确认商户信息。");
+    }
+  }
+
+  function logoutMerchant() {
+    setMerchant(null);
+    setMerchantTasks([]);
+    setMerchantListings([]);
+    setMerchantTaskQuery("");
+    setActiveView("customer");
+  }
+
+  async function handleCreateListing() {
+    if (!merchant) {
+      return;
+    }
+    if (Number(listingQuantity) <= 0 || Number(listingFloorPrice) <= 0) {
+      setListingStatus("请填写大于 0 的可供数量和底价。");
+      return;
+    }
+    setListingStatus("正在提交挂单...");
+    try {
+      await createMerchantListing(merchant.id, {
+        product_id: listingProductId,
+        available_quantity: Number(listingQuantity),
+        floor_price: Number(listingFloorPrice),
+        quality_score: 92,
+      });
+      setListingStatus("挂单已提交，平台后台可用于撮合与分配。");
+      await refreshMerchantWorkspace();
+    } catch {
+      setListingStatus("挂单提交失败，请确认后端服务和商户信息。");
+    }
+  }
+
+  const visibleMerchantTasks = filterMerchantTasks(merchantTasks, merchantTaskQuery);
+
+  if (activeView === "merchant" && merchant) {
+    return (
+      <main className="app-shell merchant-shell">
+        <section className="merchant-hero">
+          <nav className="topbar merchant-topbar">
+            <div className="brand-mark">西域羊都商户端</div>
+            <div className="merchant-actions">
+              <button className="secondary-button" onClick={() => setActiveView("customer")} type="button">
+                返回消费者页面
+              </button>
+              <button className="secondary-button" onClick={logoutMerchant} type="button">
+                退出登录
+              </button>
+            </div>
+          </nav>
+          <div className="merchant-title">
+            <p className="eyebrow">Merchant Workspace</p>
+            <h1>{merchant.name}</h1>
+            <p>{merchant.origin_base} · 主供品类 {merchant.product_focus}</p>
+          </div>
+        </section>
+
+        <section className="merchant-grid">
+          <div className="merchant-main">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Tasks</p>
+                <h2>后端分配需求</h2>
+              </div>
+              <button onClick={() => refreshMerchantWorkspace()} type="button">
+                刷新任务
+              </button>
+            </div>
+            <div className="merchant-query">
+              <input
+                value={merchantTaskQuery}
+                onChange={(event) => setMerchantTaskQuery(event.target.value)}
+                placeholder="查询订单号、客户或商品"
+              />
+            </div>
+            <div className="task-list">
+              {visibleMerchantTasks.length > 0 ? (
+                visibleMerchantTasks.map((task) => (
+                  <article className="task-card" key={task.order_id}>
+                    <div className="task-topline">
+                      <span>{task.order_id}</span>
+                      <b>{task.status === "assigned" ? "待处理" : task.status}</b>
+                    </div>
+                    <h3>{summarizeMerchantTask(task)}</h3>
+                    <p>{task.customer_name} · {task.channel}</p>
+                    <div className="task-items">
+                      {task.items.map((item) => (
+                        <span key={`${task.order_id}-${item.product_id}`}>
+                          {item.name} {item.quantity} {item.unit || "件"}
+                        </span>
+                      ))}
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="empty-cart">暂无匹配任务，等待平台后台分配。</div>
+              )}
+            </div>
+          </div>
+
+          <aside className="merchant-side">
+            <section className="merchant-panel">
+              <h2>保障信息上传通道</h2>
+              <div className="upload-buttons">
+                <button type="button">上传检疫证明</button>
+                <button type="button">上传冷链照片</button>
+                <button type="button">上传履约回执</button>
+              </div>
+            </section>
+
+            <section className="merchant-panel">
+              <h2>我的产品提供信息</h2>
+              <div className="listing-form">
+                <select value={listingProductId} onChange={(event) => setListingProductId(event.target.value)}>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  min="1"
+                  type="number"
+                  value={listingQuantity}
+                  onChange={(event) => setListingQuantity(event.target.value)}
+                  placeholder="可供数量"
+                />
+                <input
+                  min="1"
+                  type="number"
+                  value={listingFloorPrice}
+                  onChange={(event) => setListingFloorPrice(event.target.value)}
+                  placeholder="底价"
+                />
+                <button onClick={handleCreateListing} type="button">
+                  新增挂单
+                </button>
+                <span>{listingStatus}</span>
+              </div>
+              <div className="listing-list">
+                {merchantListings.length > 0 ? (
+                  merchantListings.map((listing) => (
+                    <article className="listing-card" key={listing.id}>
+                      <div>
+                        <strong>{listing.product_id}</strong>
+                        <span>{listing.origin_base}</span>
+                      </div>
+                      <p>可供 {listing.available_quantity} 件 · 底价 {formatCurrency(listing.floor_price)}</p>
+                      <small>质量评分 {listing.quality_score}</small>
+                    </article>
+                  ))
+                ) : (
+                  <div className="empty-cart">后台暂未登记供货信息。</div>
+                )}
+              </div>
+            </section>
+          </aside>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <section className="hero-band">
@@ -205,13 +437,19 @@ function App() {
             <span>冷链到家</span>
             <span>扫码溯源</span>
             <span>放心下单</span>
+            <button className="merchant-entry" onClick={() => setLoginOpen(true)} type="button">
+              商户入口
+            </button>
           </div>
         </nav>
 
         <div className="hero-grid">
           <div className="hero-copy">
             <p className="eyebrow">西北羊产业数字化供应链平台</p>
-            <h1>安心买西北好羊肉</h1>
+            <h1>
+              <span>安心买</span>
+              <span>西北好羊肉</span>
+            </h1>
             <p className="hero-text">
               从古浪产地直采到冷链配送，页面只呈现顾客需要判断购买的信息：品质、价格、溯源、履约和订单确认。
             </p>
@@ -244,6 +482,38 @@ function App() {
         </div>
       </section>
 
+      {loginOpen && (
+        <section className="login-overlay" aria-label="商户身份验证">
+          <div className="login-card">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Merchant Login</p>
+                <h2>商户身份验证</h2>
+              </div>
+              <button className="close-button" onClick={() => setLoginOpen(false)} type="button">
+                ×
+              </button>
+            </div>
+            <label className="field-label">
+              账号
+              <input value={merchantAccount} onChange={(event) => setMerchantAccount(event.target.value)} />
+            </label>
+            <label className="field-label">
+              密码
+              <input
+                type="password"
+                value={merchantPassword}
+                onChange={(event) => setMerchantPassword(event.target.value)}
+              />
+            </label>
+            <div className="submit-status idle">{merchantStatus}</div>
+            <button className="checkout-button" onClick={handleMerchantLogin} type="button">
+              验证并进入
+            </button>
+          </div>
+        </section>
+      )}
+
       <section className="shop-layout" id="products">
         <div className="catalog-panel">
           <div className="section-heading">
@@ -268,7 +538,7 @@ function App() {
           <div className="product-grid">
             {visibleProducts.map((product) => (
               <article className="product-card" key={product.id}>
-                <ProductVisual type={product.image} />
+                <ProductPhoto product={product} />
                 <div className="product-copy">
                   <div className="product-meta">
                     <span>{product.category}</span>
@@ -422,6 +692,41 @@ function App() {
             <h2>我的订单确认</h2>
           </div>
         </div>
+        <div className="order-query-panel">
+          <input
+            value={orderQuery}
+            onChange={(event) => setOrderQuery(event.target.value)}
+            placeholder="输入订单号、客户名或商品名"
+          />
+          <button onClick={handleOrderQuery} type="button">
+            查询订单
+          </button>
+          <span>{orderQueryStatus}</span>
+        </div>
+        {queriedOrders.length > 0 && (
+          <div className="order-list">
+            {queriedOrders.map((order) => (
+              <article className="order-card" key={`query-${order.id}`}>
+                <div>
+                  <span>订单号</span>
+                  <strong>{order.id}</strong>
+                </div>
+                <div>
+                  <span>客户</span>
+                  <strong>{order.customer_name}</strong>
+                </div>
+                <div>
+                  <span>状态</span>
+                  <strong>{order.status === "paid" ? "已确认" : "处理中"}</strong>
+                </div>
+                <div>
+                  <span>金额</span>
+                  <strong>{formatCurrency(order.total_amount || 0)}</strong>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
         {lastOrder ? (
           <article className="confirmation-panel">
             <div>
