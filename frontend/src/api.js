@@ -213,7 +213,10 @@ const productImageMap = {
   carcass: "/products/lamb-carcass.jpg",
 };
 
-const API_BASE = import.meta.env?.VITE_API_BASE || "http://localhost:8000";
+const viteEnv = import.meta.env;
+const configuredApiBase = viteEnv?.VITE_API_BASE;
+const API_BASE =
+  configuredApiBase !== undefined ? configuredApiBase.replace(/\/$/, "") : viteEnv?.PROD ? "" : "http://localhost:8000";
 
 function normalizeProductImage(image) {
   return productImageMap[image] || image || "/products/lamb-rack.jpg";

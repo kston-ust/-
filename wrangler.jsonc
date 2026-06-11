@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "xiyu-yangdu-trading",
+  "main": "cloudflare/worker.js",
+  "compatibility_date": "2026-06-11",
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "frontend/dist"
+  }
+}

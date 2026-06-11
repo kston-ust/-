@@ -6,6 +6,10 @@ backend/tests/__pycache__/
 frontend/node_modules/
 frontend/dist/
 frontend/*.log
+.video-tools/
+.wrangler/
+deliverables/video/*.log
+deliverables/video/*.pid
 .venv/
 .env
 .DS_Store
